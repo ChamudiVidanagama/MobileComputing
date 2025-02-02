@@ -2,7 +2,10 @@ package com.example.mobilecomputing
 
 import SampleData
 import android.annotation.SuppressLint
+import android.net.Uri
 import android.os.Bundle
+import android.util.Log
+import android.widget.ImageView
 import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.compose.animation.animateColorAsState
@@ -29,6 +32,7 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
@@ -37,12 +41,21 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.painter.Painter
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.res.painterResource
 import androidx.compose.ui.tooling.preview.Preview
 import androidx.compose.ui.unit.dp
 import androidx.navigation.NavController
 import androidx.navigation.compose.rememberNavController
+import androidx.room.Room
+import coil.compose.rememberAsyncImagePainter
+import com.example.mobilecomputing.data.AppDatabase
+import com.example.mobilecomputing.data.User
 import com.example.mobilecomputing.ui.theme.MobileComputingTheme
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.withContext
 
 class MainActivity : ComponentActivity() {
     @SuppressLint("UnusedMaterial3ScaffoldPaddingParameter")
@@ -59,70 +72,47 @@ class MainActivity : ComponentActivity() {
     }
 }
 
-@Composable
-fun ConversationScreen(navController: NavController) {
-    Box(modifier = Modifier.fillMaxSize()) {
-        Text(
-            text = "Conversation",
-            style = MaterialTheme.typography.headlineSmall,
-            modifier = Modifier
-                .align(Alignment.TopStart)
-                .padding(16.dp) // Adjust padding if needed
-        )
-
-        IconButton(
-            onClick = {
-                navController.navigate(NavigationRoutes.SingleMessage.route)
-            },
-            modifier = Modifier
-                .align(Alignment.TopEnd)
-                .size(66.dp) // Size of the circular button
-                .padding(16.dp) // Padding around the button
-                .background(MaterialTheme.colorScheme.primary, CircleShape)
-        ) {
-            Icon(
-                painter = painterResource(id = R.drawable.settings),
-                contentDescription = "Next Screen",
-                modifier = Modifier.size(32.dp),
-                tint = Color.White // Icon color
-            )
-        }
-
-        Column(
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(top = 64.dp)
-        ) {
-            Conversation(SampleData.conversationSample)
-        }
-    }
-}
-
 data class Message(val author: String, val body: String)
 
 @Composable
-fun MessageCard(msg: Message) {
+fun MessageCard(msg: Message, userImageUri: String?) {
     Row(modifier = Modifier.padding(all = 8.dp)) {
-        Image(
-            painter = painterResource(R.drawable.profile_picture),
-            contentDescription = null,
-            modifier = Modifier
-                .size(50.dp)
-                .clip(CircleShape)
-                .border(1.5.dp, MaterialTheme.colorScheme.secondary, CircleShape)
-        )
+        val context = LocalContext.current
+        val imageView = remember { ImageView(context) }
+
+        userImageUri?.let {
+            val painter: Painter = rememberAsyncImagePainter(
+                model = userImageUri ?: R.drawable.profile_picture
+            )
+
+            Image(
+                painter = painter,
+                contentDescription = "User Profile Image",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(CircleShape)
+                    .border(1.5.dp, MaterialTheme.colorScheme.secondary, CircleShape)
+            )
+        } ?: run {
+            Image(
+                painter = painterResource(R.drawable.profile_picture),
+                contentDescription = null,
+                modifier = Modifier
+                    .size(50.dp)
+                    .clip(CircleShape)
+                    .border(1.5.dp, MaterialTheme.colorScheme.secondary, CircleShape)
+            )
+        }
+
+
         Spacer(modifier = Modifier.width(8.dp))
 
-        // We keep track if the message is expanded or not in this
-        // variable
         var isExpanded by remember { mutableStateOf(false) }
-        // surfaceColor will be updated gradually from one color to the other
         val surfaceColor by animateColorAsState(
-            if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface,
-            label = "",
+            if (isExpanded) MaterialTheme.colorScheme.primary else MaterialTheme.colorScheme.surface
         )
 
-        // We toggle the isExpanded variable when we click on this Column
         Column(modifier = Modifier.clickable { isExpanded = !isExpanded }) {
             Text(
                 text = msg.author,
@@ -141,8 +131,6 @@ fun MessageCard(msg: Message) {
                 Text(
                     text = msg.body,
                     modifier = Modifier.padding(all = 4.dp),
-                    // If the message is expanded, we display all its content
-                    // otherwise we only display the first line
                     maxLines = if (isExpanded) Int.MAX_VALUE else 1,
                     style = MaterialTheme.typography.bodyMedium
                 )
@@ -152,10 +140,10 @@ fun MessageCard(msg: Message) {
 }
 
 @Composable
-fun Conversation(messages: List<Message>) {
+fun Conversation(messages: List<Message>, userImageUri: String?) {
     LazyColumn {
         items(messages) { message ->
-            MessageCard(message)
+            MessageCard(message, userImageUri)
         }
     }
 }
@@ -169,3 +157,55 @@ fun PreviewConversation() {
     }
 }
 
+@Composable
+fun ConversationScreen(navController: NavController) {
+    val context = LocalContext.current
+
+    val db = Room.databaseBuilder(context, AppDatabase::class.java, "app-database").build()
+    val userDao = db.userDao()
+
+    val savedUser = remember { mutableStateOf<User?>(null) }
+
+    LaunchedEffect(true) {
+        savedUser.value = withContext(Dispatchers.IO) {
+            userDao.getUser()
+        }
+    }
+
+    Box(modifier = Modifier.fillMaxSize()) {
+        Text(
+            text = "Conversation",
+            style = MaterialTheme.typography.headlineSmall,
+            modifier = Modifier
+                .align(Alignment.TopStart)
+                .padding(16.dp)
+        )
+
+        IconButton(
+            onClick = { navController.navigate(NavigationRoutes.SingleMessage.route) },
+            modifier = Modifier
+                .align(Alignment.TopEnd)
+                .size(66.dp)
+                .padding(16.dp)
+                .background(MaterialTheme.colorScheme.primary, CircleShape)
+        ) {
+            Icon(
+                painter = painterResource(id = R.drawable.settings),
+                contentDescription = "Next Screen",
+                modifier = Modifier.size(32.dp),
+                tint = Color.White
+            )
+        }
+
+        Column(modifier = Modifier.fillMaxSize().padding(top = 64.dp)) {
+            savedUser.value?.let { user ->
+                Log.d("Restart App", "User: ${user.name}, Image URI: ${user.imageUri}")
+                Conversation(SampleData.conversationSample(user.name), user.imageUri)
+            } ?: run {
+                val defaultUser = User(name = "Lexi", imageUri = "android.resource://com.example.mobilecomputing/drawable/profile_picture")
+                Conversation(SampleData.conversationSample(defaultUser.name), defaultUser.imageUri)
+            }
+        }
+
+    }
+}

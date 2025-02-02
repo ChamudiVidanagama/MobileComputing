@@ -12,6 +12,3 @@ fun NavigationHost(navController: NavHostController) {
         composable(NavigationRoutes.SingleMessage.route) { SingleMessageScreen(navController) }
     }
 }
-
-
-
